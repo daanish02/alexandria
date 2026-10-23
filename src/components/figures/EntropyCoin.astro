@@ -1,0 +1,123 @@
+---
+import Figure from '../Figure.astro';
+---
+
+<Figure
+  title="Entropy peaks when the coin is fair"
+  caption="Drag the slider. The point is the coin you have chosen: amber in general, sage when it is fair (the maximum), coral when the outcome is certain (zero). Switching to nats rescales the curve by ln 2 but does not change its shape."
+>
+  <entropy-coin>
+    <div class="choice-row">
+      <span class="ctl-label">Unit</span>
+      <input type="hidden" data-unit value="bits" />
+      <span class="choice">
+        <button type="button" class="btn" data-choice="bits" aria-pressed="true">bits</button>
+        <button type="button" class="btn" data-choice="nats" aria-pressed="false">nats</button>
+      </span>
+    </div>
+    <div class="ctl-row">
+      <label class="ec-lbl">P(heads) <input type="range" min="0" max="1" step="0.01" value="0.9" data-p aria-label="Probability of heads" /> <b data-pv>0.90</b></label>
+    </div>
+    <div class="axes" style="--ax-w: 440px">
+      <span class="ax-y" data-yl>entropy H (bits)</span>
+      <svg viewBox="0 0 440 230" data-svg role="img" aria-label="Entropy of a coin as a function of the probability of heads"></svg>
+      <span class="ax-x">probability of heads, p</span>
+    </div>
+    <p class="stat" data-stat></p>
+  </entropy-coin>
+</Figure>
+
+<style>
+  .ctl-row {
+    margin-top: 10px;
+  }
+  .ec-lbl {
+    display: flex;
+    flex: 1;
+    align-items: center;
+    gap: 10px;
+    font-size: 0.875rem;
+    color: var(--text-muted);
+  }
+  .ec-lbl input {
+    flex: 1;
+    min-width: 140px;
+  }
+  .ec-lbl b {
+    min-width: 2.6em;
+    font: 600 0.8125rem var(--font-mono);
+    color: var(--text);
+  }
+  .axes {
+    margin-top: 14px;
+  }
+  .axes svg {
+    display: block;
+    width: 100%;
+    height: auto;
+  }
+  .stat {
+    margin: 12px 0 0;
+    text-align: center;
+  }
+</style>
+
+<script>
+  class EntropyCoin extends HTMLElement {
+    connectedCallback() {
+      this.querySelector('[data-p]')!.addEventListener('input', () => this.draw());
+      this.querySelector('[data-unit]')!.addEventListener('change', () => this.draw());
+      this.draw();
+    }
+    unit() {
+      return this.querySelector<HTMLInputElement>('[data-unit]')!.value;
+    }
+    H(p: number) {
+      if (p <= 0 || p >= 1) return 0;
+      const bits = -(p * Math.log2(p) + (1 - p) * Math.log2(1 - p));
+      return this.unit() === 'bits' ? bits : bits * Math.LN2;
+    }
+    draw() {
+      const unit = this.unit();
+      const p = +this.querySelector<HTMLInputElement>('[data-p]')!.value;
+      const L = 44, R = 420, T = 16, B = 196;
+      const max = unit === 'bits' ? 1 : Math.LN2;
+      const X = (q: number) => L + q * (R - L);
+      const Y = (h: number) => B - (h / max) * (B - T);
+      let d = '';
+      for (let i = 0; i <= 100; i++) {
+        const q = i / 100;
+        d += `${i ? 'L' : 'M'}${X(q).toFixed(1)} ${Y(this.H(q)).toFixed(1)}`;
+      }
+      const h = this.H(p);
+      const cx = X(p);
+      const cy = Y(h);
+      const degenerate = p === 0 || p === 1;
+      const fair = Math.abs(p - 0.5) < 0.005;
+      const dot = degenerate ? 'var(--f-coral)' : fair ? 'var(--f-sage)' : 'var(--f-amber)';
+      this.querySelector('[data-svg]')!.innerHTML = `
+        <line x1="${L}" y1="${B}" x2="${R}" y2="${B}" stroke="var(--border-strong)"/>
+        <line x1="${L}" y1="${T}" x2="${L}" y2="${B}" stroke="var(--border-strong)"/>
+        <line x1="${L}" y1="${Y(max)}" x2="${R}" y2="${Y(max)}" stroke="var(--f-sage)" stroke-dasharray="4 4" opacity=".55"/>
+        <text class="ax-tick" x="${L - 6}" y="${Y(max) + 3}" text-anchor="end">${unit === 'bits' ? '1.0' : '0.693'}</text>
+        <text class="ax-tick" x="${L - 6}" y="${B + 3}" text-anchor="end">0</text>
+        <text class="ax-tick" x="${L}" y="${B + 16}" text-anchor="middle">0</text>
+        <text class="ax-tick" x="${X(0.5)}" y="${B + 16}" text-anchor="middle">0.5</text>
+        <text class="ax-tick" x="${R}" y="${B + 16}" text-anchor="middle">1</text>
+        <path d="${d}" fill="none" stroke="var(--f-sky)" stroke-width="2.5" stroke-linecap="round"/>
+        <line x1="${cx}" y1="${cy}" x2="${cx}" y2="${B}" stroke="${dot}" stroke-dasharray="3 3" opacity=".7"/>
+        <circle cx="${cx}" cy="${cy}" r="7" fill="${dot}" stroke="#000" stroke-width="2"/>`;
+      this.querySelector('[data-yl]')!.textContent = `entropy H (${unit})`;
+      this.querySelector('[data-pv]')!.textContent = p.toFixed(2);
+      const verdict = degenerate
+        ? 'certain outcome, no surprise'
+        : fair
+          ? 'fair coin, maximum entropy'
+          : p > 0.5
+            ? 'biased toward heads'
+            : 'biased toward tails';
+      this.querySelector('[data-stat]')!.innerHTML = `p = <b>${p.toFixed(2)}</b> · H = <b>${h.toFixed(3)}</b> ${unit} · ${verdict}`;
+    }
+  }
+  customElements.define('entropy-coin', EntropyCoin);
+</script>

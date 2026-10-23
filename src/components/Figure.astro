@@ -1,0 +1,28 @@
+---
+// Frame shared by every diagram and interactive: header strip, body, optional caption.
+interface Props {
+  title: string;
+  kind?: 'Interactive' | 'Diagram';
+  caption?: string;
+}
+const { title, kind = 'Interactive', caption } = Astro.props;
+---
+
+<figure class="figure not-prose" data-pagefind-ignore>
+  <div class="figure-head">
+    <span class="dot" style={kind === 'Diagram' ? 'background: var(--f-sky); box-shadow: 0 0 0 3px rgba(111,177,224,.18)' : undefined}></span>
+    <span class="kind">{kind}</span>
+    <span class="title">{title}</span>
+  </div>
+  <div class="figure-body">
+    <slot />
+  </div>
+  {caption && <figcaption class="figure-caption">{caption}</figcaption>}
+</figure>
+
+<script>
+  // ?figmarks marks every figure's top edge in magenta so scripts/note_tools.py shots can find and crop it
+  if (new URLSearchParams(location.search).has('figmarks')) {
+    document.querySelectorAll<HTMLElement>('figure.figure').forEach((f) => (f.style.borderTop = '4px solid #ff00ff'));
+  }
+</script>

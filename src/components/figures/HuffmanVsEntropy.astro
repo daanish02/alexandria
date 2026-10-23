@@ -1,0 +1,129 @@
+---
+import Figure from '../Figure.astro';
+---
+
+<Figure
+  title="A Huffman code against the entropy limit"
+  caption="Pick a source. Each row is a symbol: the bar is its probability and the bits are its Huffman codeword. The average length L can never beat the entropy H. It matches it exactly (sage) only when every probability is a power of 1/2, and otherwise sits a little above (amber), always less than 1 bit over."
+>
+  <huffman-vs-entropy>
+    <div class="choice-row">
+      <span class="ctl-label">Source</span>
+      <input type="hidden" data-src value="dyadic" />
+      <span class="choice">
+        <button type="button" class="btn" data-choice="coin" aria-pressed="false">Fair coin</button>
+        <button type="button" class="btn" data-choice="biased" aria-pressed="false">90/10 coin</button>
+        <button type="button" class="btn" data-choice="dyadic" aria-pressed="true">½ ¼ ⅛ ⅛</button>
+        <button type="button" class="btn" data-choice="four" aria-pressed="false">0.4 0.35 0.2 0.05</button>
+      </span>
+    </div>
+    <div class="hv-rows" data-rows></div>
+    <p class="stat" data-stat></p>
+  </huffman-vs-entropy>
+</Figure>
+
+<style>
+  .hv-rows {
+    display: grid;
+    gap: 6px;
+    margin-top: 14px;
+  }
+  /* rows are created in JS, so their styles must be global */
+  .hv-rows :global(.hv-row) {
+    display: grid;
+    grid-template-columns: 1.4rem minmax(0, 1fr) 3.2rem 4.6rem;
+    align-items: center;
+    gap: 10px;
+    font: 0.8125rem var(--font-mono);
+    color: var(--text-muted);
+  }
+  .hv-rows :global(.hv-head) {
+    font: 600 0.6875rem var(--font-mono);
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+  }
+  .hv-rows :global(.hv-bar) {
+    height: 14px;
+    border-radius: 4px;
+    background: var(--bg-soft);
+    overflow: hidden;
+  }
+  .hv-rows :global(.hv-bar i) {
+    display: block;
+    height: 100%;
+    background: var(--f-sky);
+    border-radius: 4px;
+  }
+  .hv-rows :global(.hv-code) {
+    color: var(--text);
+    font-weight: 600;
+    letter-spacing: 0.08em;
+  }
+  .stat {
+    margin: 14px 0 0;
+  }
+</style>
+
+<script>
+  const SOURCES: Record<string, number[]> = {
+    coin: [0.5, 0.5],
+    biased: [0.9, 0.1],
+    dyadic: [0.5, 0.25, 0.125, 0.125],
+    four: [0.4, 0.35, 0.2, 0.05],
+  };
+
+  interface Node {
+    w: number;
+    sym?: number;
+    kids?: [Node, Node];
+  }
+
+  // Huffman: repeatedly join the two lightest nodes, then read each leaf's path from the root
+  function huffman(p: number[]): string[] {
+    const pool: Node[] = p.map((w, sym) => ({ w, sym }));
+    while (pool.length > 1) {
+      pool.sort((a, b) => a.w - b.w);
+      const a = pool.shift()!;
+      const b = pool.shift()!;
+      pool.push({ w: a.w + b.w, kids: [a, b] });
+    }
+    const codes: string[] = [];
+    const walk = (n: Node, path: string) => {
+      if (n.kids) {
+        walk(n.kids[0], path + '0');
+        walk(n.kids[1], path + '1');
+      } else codes[n.sym!] = path || '0';
+    };
+    walk(pool[0], '');
+    return codes;
+  }
+
+  class HuffmanVsEntropy extends HTMLElement {
+    connectedCallback() {
+      this.querySelector('[data-src]')!.addEventListener('change', () => this.draw());
+      this.draw();
+    }
+    draw() {
+      const p = SOURCES[this.querySelector<HTMLInputElement>('[data-src]')!.value];
+      const codes = huffman(p);
+      const H = -p.reduce((s, x) => s + x * Math.log2(x), 0);
+      const L = p.reduce((s, x, i) => s + x * codes[i].length, 0);
+      const names = 'abcd';
+      const head = `<div class="hv-row hv-head"><span></span><span>probability</span><span>code</span><span>bits</span></div>`;
+      this.querySelector('[data-rows]')!.innerHTML =
+        head +
+        p
+          .map(
+            (x, i) =>
+              `<div class="hv-row"><span>${names[i]}</span><span class="hv-bar"><i style="width:${x * 100}%"></i></span><span class="hv-code">${codes[i]}</span><span>${x} × ${codes[i].length}</span></div>`,
+          )
+          .join('');
+      const exact = Math.abs(L - H) < 1e-9;
+      const colour = exact ? 'var(--f-sage)' : 'var(--f-amber)';
+      this.querySelector('[data-stat]')!.innerHTML =
+        `H = <b>${H.toFixed(3)}</b> bits · L = <b style="color:${colour}">${L.toFixed(3)}</b> bits · gap <b style="color:${colour}">${(L - H).toFixed(3)}</b> · ${exact ? 'exact: all probabilities are powers of 1/2' : 'above the limit, but under 1 bit'}`;
+    }
+  }
+  customElements.define('huffman-vs-entropy', HuffmanVsEntropy);
+</script>

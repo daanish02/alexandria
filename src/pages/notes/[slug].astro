@@ -1,0 +1,363 @@
+---
+import { render } from 'astro:content';
+import katex from 'katex';
+import Base from '../../layouts/Base.astro';
+import Toc from '../../components/Toc.astro';
+import DomainIcon from '../../components/DomainIcon.astro';
+import GraphView from '../../components/GraphView.astro';
+import { components } from '../../components/figures';
+import { domains, getDomain, iconSvg } from '../../data/domains';
+import { backlinks, buildGraph, neighbourhood } from '../../lib/graph';
+import { allNotes, isWritten, noteUrl, pathOf, readingMinutes, url, type Note } from '../../lib/nav';
+import { sky } from '../../data/sky';
+
+export async function getStaticPaths() {
+  const notes = await allNotes();
+  return notes.map((note) => ({ params: { slug: note.id }, props: { note } }));
+}
+
+const { note } = Astro.props as { note: Note };
+const all = await allNotes();
+const written = isWritten(note);
+const bySlug = new Map(all.map((n) => [n.id, n]));
+const graph = await buildGraph();
+const linkedFrom = backlinks(graph).get(note.id) ?? [];
+// The neighbourhood graph is built and ready, but off until there are enough notes for it to look meaningful.
+const SHOW_LOCAL_GRAPH = false;
+const local = neighbourhood(graph, note.id);
+const graphDomains = domains.map((d) => ({ id: d.slug, title: d.name, colour: d.colour, icon: iconSvg(d.slug, 12) }));
+const { Content, headings } = await render(note);
+
+const noteDomains = note.data.domains.map((d) => getDomain(d)!);
+const pathInfo = pathOf(note.id);
+const prev = pathInfo?.prev ? bySlug.get(pathInfo.prev) : undefined;
+const next = pathInfo?.next ? bySlug.get(pathInfo.next) : undefined;
+
+// Frontmatter strings are not markdown, so $...$ math in them is rendered with KaTeX here.
+// An escaped \$ (written \\$ in YAML) is a literal dollar sign, as in the MDX body.
+const withMath = (s: string) =>
+  s
+    .replace(/(?<!\\)\$(.+?)(?<!\\)\$/g, (_, tex) =>
+      // the MathML copy of a formula would show up in search excerpts as noise, so hide it from the index
+      katex.renderToString(tex, { throwOnError: false, strict: false }).replace('class="katex-mathml"', 'class="katex-mathml" data-pagefind-ignore="all"'),
+    )
+    .replace(/\\\$/g, '$');
+// Code spans show their text literally: `<button>` must not become a real element.
+const escapeHtml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+---
+
+<Base title={note.data.title} description={note.data.description}>
+  <div class="shell">
+    <main class="main" data-pagefind-body={written ? '' : undefined} data-pagefind-meta={`domain:${note.data.domains[0]}`}>
+      <article>
+        <header class="note-head">
+          <a class="back" href={import.meta.env.BASE_URL} data-pagefind-ignore>← Back to the graph</a>
+          <h1>{note.data.title}</h1>
+          <p class="lead" set:html={withMath(note.data.description)}></p>
+          <div class="note-meta" data-pagefind-ignore>
+          <p class="read-meta">
+            {
+              written ? (
+                <>
+                  <span class="time">
+                    <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true">
+                      <circle cx="8" cy="8" r="6.25" />
+                      <path d="M8 4.75V8l2.25 1.5" />
+                    </svg>
+                    ~{readingMinutes(note)} min read
+                  </span>
+                  <span class="sep">·</span>
+                  <time datetime={note.data.updated.toISOString().slice(0, 10)}>updated {note.data.updated.toISOString().slice(0, 10)}</time>
+                </>
+              ) : (
+                <span>Not written yet</span>
+              )
+            }
+          </p>
+          <p class="domain-meta">
+            {noteDomains.map((d) => <span class="tag"><span class="tag-icon" style={`color: ${d.colour}`}><DomainIcon slug={d.slug} /></span>{d.name}</span>)}
+          </p>
+          </div>
+        </header>
+
+        {
+          note.data.takeaways.length > 0 && (
+            <section class="in-short" aria-labelledby="in-short">
+              <h2 id="in-short" data-pagefind-ignore>In short</h2>
+              <ul>
+                {note.data.takeaways.map((t) => (
+                  <li set:html={withMath(t.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>').replace(/`(.+?)`/g, (_, c) => `<code>${escapeHtml(c)}</code>`))} />
+                ))}
+              </ul>
+            </section>
+          )
+        }
+
+        <div class="prose">
+          <Content components={components} />
+        </div>
+
+        {
+          note.data.sources.length > 0 && (
+            <section class="deeper" aria-labelledby="resources">
+              <h2 id="resources">Resources</h2>
+              <ul>
+                {note.data.sources.map((s) => (
+                  <li>
+                    <a href={s.url} target="_blank" rel="noopener">
+                      <span class="r-title">{s.title}</span>
+                      <span class="r-host">{s.kind} · {new URL(s.url).hostname.replace(/^www\./, '')}</span>
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )
+        }
+
+        {
+          SHOW_LOCAL_GRAPH && local.nodes.length > 1 && (
+            <section class="local" aria-labelledby="local-graph" data-pagefind-ignore>
+              <h2 id="local-graph">Neighbourhood</h2>
+              <GraphView variant="local" data={{ domains: graphDomains, sky: { ...sky, place: { lat: sky.place.lat, lon: sky.place.lon }, stars: url('stars.json'), lines: url('constellation-lines.json') }, ...local }} />
+            </section>
+          )
+        }
+
+        {
+          linkedFrom.length > 0 && (
+            <section class="deeper" aria-labelledby="linked-from" data-pagefind-ignore>
+              <h2 id="linked-from">Linked from</h2>
+              <ul>
+                {linkedFrom.map((n) => (
+                  <li>
+                    <a href={n.href}>
+                      <span class="r-title">{n.title}</span>
+                      <span class="r-host">{getDomain(n.domains[0])?.name}</span>
+                    </a>
+                    <p>{n.description}</p>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )
+        }
+      </article>
+
+      {
+        pathInfo && (prev || next) && (
+          <nav class="pager" aria-label={`Path: ${pathInfo.path.title}`} data-pagefind-ignore>
+            {prev ? (
+              <a class="pager-link" href={noteUrl(prev)}>
+                <span class="pager-dir">← Previous · {pathInfo.path.title}</span>
+                <span class="pager-title">{prev.data.title}</span>
+              </a>
+            ) : (
+              <span />
+            )}
+            {next && (
+              <a class="pager-link next" href={noteUrl(next)}>
+                <span class="pager-dir">Next · {pathInfo.path.title} →</span>
+                <span class="pager-title">{next.data.title}</span>
+              </a>
+            )}
+          </nav>
+        )
+      }
+    </main>
+    <aside class="toc-col" data-pagefind-ignore>
+      <Toc headings={headings} />
+    </aside>
+  </div>
+</Base>
+
+<style>
+  .shell {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) var(--toc-w);
+    max-width: 1240px;
+    margin: 0 auto;
+  }
+  .main {
+    min-width: 0;
+    padding: 32px 56px 96px;
+  }
+  article {
+    max-width: var(--content-w);
+    margin: 0 auto;
+  }
+  .toc-col {
+    padding: 40px 24px 0 0;
+  }
+  .back {
+    display: inline-block;
+    margin: 0 0 18px;
+    font-size: 0.8125rem;
+    color: var(--text-muted);
+  }
+  .back:hover {
+    color: var(--text);
+  }
+  .tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    color: var(--text-muted);
+  }
+  .tag-icon {
+    display: inline-flex;
+  }
+  h1 {
+    margin: 0;
+    font-size: clamp(1.9rem, 4vw, 2.4rem);
+    line-height: 1.15;
+    letter-spacing: -0.03em;
+    font-weight: 700;
+  }
+  .lead {
+    margin: 14px 0 0;
+    font-size: 1.125rem;
+    line-height: 1.6;
+    color: var(--text-muted);
+  }
+  .note-meta {
+    margin: 12px 0 32px;
+    display: grid;
+    gap: 8px;
+  }
+  .read-meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 10px;
+    margin: 0;
+    font-size: 0.8125rem;
+    color: var(--text-faint);
+  }
+  .domain-meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 16px;
+    margin: 0;
+    font-size: 0.8125rem;
+    color: var(--text-muted);
+  }
+  .read-meta .time {
+    display: inline-flex;
+    align-items: center;
+    gap: 9px;
+  }
+  .deeper {
+    margin-top: 48px;
+    padding-top: 28px;
+    border-top: 1px solid var(--border);
+  }
+  .local {
+    margin-top: 48px;
+    padding-top: 28px;
+    border-top: 1px solid var(--border);
+  }
+  .local h2 {
+    margin: 0 0 14px;
+    font-size: 1.125rem;
+  }
+  .deeper + .deeper {
+    margin-top: 28px;
+  }
+  .deeper h2 {
+    margin: 0 0 14px;
+    font-size: 1.125rem;
+  }
+  .deeper ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 8px;
+  }
+  .deeper li {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 10px 14px;
+    background: var(--bg-elev);
+  }
+  .deeper a {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    align-items: baseline;
+  }
+  .deeper a:hover .r-title {
+    color: var(--accent);
+  }
+  .r-title {
+    font-weight: 600;
+    font-size: 0.9375rem;
+  }
+  .r-host {
+    font: 0.75rem var(--font-mono);
+    color: var(--text-faint);
+    white-space: nowrap;
+  }
+  .deeper p {
+    margin: 4px 0 0;
+    font-size: 0.875rem;
+    color: var(--text-muted);
+    line-height: 1.55;
+  }
+  .pager {
+    max-width: var(--content-w);
+    margin: 56px auto 0;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+  .pager-link {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 14px 16px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+  }
+  .pager-link:hover {
+    border-color: var(--border-strong);
+    background: var(--bg-elev);
+  }
+  .pager-link.next {
+    text-align: right;
+    grid-column: 2;
+  }
+  .pager-dir {
+    font-size: 0.75rem;
+    color: var(--text-faint);
+  }
+  .pager-title {
+    font-weight: 600;
+    color: var(--text);
+  }
+
+  @media (max-width: 1023px) {
+    .shell {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .toc-col {
+      display: none;
+    }
+    .main {
+      padding: 24px 16px 72px;
+    }
+  }
+  @media (max-width: 640px) {
+    .lead {
+      font-size: 1.0625rem;
+    }
+    .pager {
+      grid-template-columns: 1fr;
+    }
+    .pager-link.next {
+      grid-column: 1;
+    }
+  }
+</style>
