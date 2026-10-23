@@ -1,0 +1,7 @@
+---
+import { iconSvg } from '../data/domains';
+// One line-art icon per domain; the drawings live in domains.ts. Colour comes from the parent (currentColor).
+const { slug, size = 15 } = Astro.props as { slug: string; size?: number };
+---
+
+<Fragment set:html={iconSvg(slug, size)} />

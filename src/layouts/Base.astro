@@ -1,0 +1,196 @@
+---
+import '../styles/global.css';
+import { url } from '../lib/nav';
+import Search from '../components/Search.astro';
+import Lighthouse from '../components/Lighthouse.astro';
+
+interface Props {
+  title: string;
+  description?: string;
+}
+
+const { title, description = 'A personal library of notes on whatever is worth understanding.' } = Astro.props;
+const fullTitle = title === 'Alexandria' ? title : `${title} · Alexandria`;
+// set automatically in GitHub Actions; the link is hidden in local builds
+const repo = process.env.GITHUB_REPOSITORY;
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#000000" />
+    <title>{fullTitle}</title>
+    <meta name="description" content={description} />
+    <meta property="og:title" content={fullTitle} />
+    <meta property="og:description" content={description} />
+    <link rel="icon" href={url('favicon.svg')} type="image/svg+xml" />
+    <link rel="license" href={url('licences.txt')} type="text/plain" />
+    <!-- Third-party data notices: see licences.txt -->
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+    />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.19.0/dist/katex.min.css" crossorigin="anonymous" />
+  </head>
+  <body>
+    <noscript class="no-js">This site needs JavaScript to work. Please enable it to continue.</noscript>
+    <header class="site-header">
+      <div class="bar">
+        <a class="logo" href={url()}>
+          <Lighthouse size={32} />
+          <span>Alexandria</span>
+        </a>
+        <nav class="bar-right" aria-label="Main">
+          <Search />
+          {
+            repo && (
+              <a class="nav-link icon" href={`https://github.com/${repo}`} aria-label="GitHub repository">
+                <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+                  <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z" />
+                </svg>
+              </a>
+            )
+          }
+        </nav>
+      </div>
+    </header>
+    <slot />
+    <script>
+      // Button switchers in figures: <input type="hidden" data-x value="a" /><span class="choice">
+      // <button data-choice="a">…</button>…</span>. A click sets the hidden input, marks the pressed
+      // button and fires input/change events, so figure code reads it like a <select>.
+      // Auto-play for steppers: <button data-auto-step>Auto</button> presses the figure's own
+      // [data-step-btn] button every 700 ms until it is disabled, nothing changes, a reset or
+      // other control is used, or Auto is pressed again (it reads Pause while running).
+      const running = new Map<HTMLElement, number>();
+      const stop = (btn: HTMLElement) => {
+        clearInterval(running.get(btn));
+        running.delete(btn);
+        btn.textContent = 'Auto';
+        btn.setAttribute('aria-pressed', 'false');
+      };
+      document.addEventListener('click', (e) => {
+        const target = e.target as HTMLElement;
+        const auto = target.closest<HTMLButtonElement>('[data-auto-step]');
+        if (!auto) {
+          // any other button in a figure stops its auto-play (a user step, reset or mode change)
+          const fig = target.closest('figure');
+          // (programmatic step clicks from auto-play are not trusted, so they do not stop it)
+          if (fig && target.closest('button') && e.isTrusted) {
+            running.forEach((_, b) => { if (fig.contains(b)) stop(b); });
+          }
+          return;
+        }
+        if (running.has(auto)) return stop(auto);
+        const host = auto.closest('figure')!;
+        const step = host.querySelector<HTMLButtonElement>('[data-step-btn]');
+        if (!step) return;
+        auto.textContent = 'Pause';
+        auto.setAttribute('aria-pressed', 'true');
+        const tick = () => {
+          if (step.disabled) return stop(auto);
+          const before = host.textContent + host.innerHTML.length;
+          step.click();
+          if (step.disabled || host.textContent + host.innerHTML.length === before) stop(auto);
+        };
+        running.set(auto, window.setInterval(tick, 700));
+        tick();
+      });
+      // Toggle buttons: <input type="checkbox" hidden data-x /><button data-toggle aria-pressed>…</button>.
+      // A click flips the hidden checkbox and fires input/change, so figure code reads .checked as before.
+      document.addEventListener('click', (e) => {
+        const btn = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-toggle]');
+        const box = btn?.previousElementSibling as HTMLInputElement | null;
+        if (!btn || !box || box.type !== 'checkbox') return;
+        box.checked = !box.checked;
+        btn.setAttribute('aria-pressed', String(box.checked));
+        box.dispatchEvent(new Event('input', { bubbles: true }));
+        box.dispatchEvent(new Event('change', { bubbles: true }));
+      });
+      document.addEventListener('click', (e) => {
+        const btn = (e.target as HTMLElement).closest<HTMLButtonElement>('.choice [data-choice]');
+        if (!btn) return;
+        const group = btn.closest('.choice')!;
+        const input = group.previousElementSibling as HTMLInputElement | null;
+        group.querySelectorAll('[data-choice]').forEach((b) => b.setAttribute('aria-pressed', String(b === btn)));
+        if (!input || input.value === btn.dataset.choice) return;
+        input.value = btn.dataset.choice!;
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        input.dispatchEvent(new Event('change', { bubbles: true }));
+      });
+    </script>
+  </body>
+</html>
+
+<style>
+  .site-header {
+    position: sticky;
+    top: 0;
+    z-index: 40;
+    background: rgba(0, 0, 0, 0.88);
+    backdrop-filter: saturate(140%) blur(12px);
+    -webkit-backdrop-filter: saturate(140%) blur(12px);
+    border-bottom: 1px solid var(--border);
+  }
+  .bar {
+    height: var(--header-h);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 0 24px;
+    max-width: 1520px;
+    margin: 0 auto;
+  }
+  .logo {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    font-weight: 700;
+    font-size: 1.25rem;
+    letter-spacing: -0.02em;
+  }
+  .bar-right {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+  }
+  .nav-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.875rem;
+    font-weight: 500;
+    padding: 7px 12px;
+    border-radius: 10px;
+    color: var(--text-muted);
+    transition: color 0.15s, background 0.15s;
+  }
+  .nav-link:hover {
+    color: var(--text);
+    background: var(--bg-hover);
+  }
+  :global(.no-js) {
+    display: block;
+    padding: 10px 24px;
+    text-align: center;
+    font-size: 0.875rem;
+    color: var(--text);
+    background: rgba(238, 125, 107, 0.16);
+    border-bottom: 1px solid var(--f-coral);
+  }
+  .nav-link.icon {
+    padding: 7px;
+  }
+  @media (max-width: 640px) {
+    .bar {
+      padding: 0 16px;
+    }
+  }
+</style>
